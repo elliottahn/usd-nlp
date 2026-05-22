@@ -1,12 +1,4 @@
 __pycache__/
 *.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
-.eggs/
 *.json
-.pytest_cache/
-.mypy_cache/
-.venv/
-venv/
+!benchmarks/results.json

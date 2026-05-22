@@ -142,8 +142,9 @@ context aids recall.
 ## Twin Architectures
 
 - **LanguageTwin** — shared-state translation of multi-document
-  projects, with multilingual term base management and
-  jurisdiction-specific variants.
+  projects, with user-supplied segmentation, multilingual term-base
+  management with jurisdiction-specific variants, and update,
+  retrieval, and generation helper methods.
 - **InterpretationTwin** — real-time simultaneous interpreting
   assistance with configurable network quality-of-service thresholds,
   confidence-filtered hint delivery, TTL-based hint expiry, and
@@ -151,6 +152,9 @@ context aids recall.
   failure).
 
 ## Testing
+
+The toolkit ships with a unit test suite (39 tests) covering the
+core hierarchy, the seven-layer stack, and both twin architectures:
 
 ```bash
 python -m unittest discover tests/

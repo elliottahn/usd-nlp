@@ -1,67 +1,64 @@
-"""Example: RSI Session with QoS Monitoring using USD-NLP.
+#!/usr/bin/env python3
+"""Example: remote simultaneous interpreting session with QoS monitoring.
 
-Simulates a BOJ press conference interpretation (JP→KR) with
-typed hint delivery, latency recording, and degradation response.
+Demonstrates the InterpretationTwin for a simulated central-bank press
+conference: typed hint generation, latency recording, and graduated
+degradation response.
+
+Run:  python examples/rsi_qos_session.py
 """
-import random
-from usd_nlp import *
+import os
+import sys
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from usd_nlp.core import PrimType
+from usd_nlp.twin import InterpretationTwin, QoSThresholds
+
 
 def main():
-    random.seed(42)
-
-    # Configure QoS thresholds
-    qos = QoSConfig(
-        latency_nominal_ms=500,
-        latency_degraded_ms=1500,
-        latency_critical_ms=3000,
-        hint_ttl_seconds=10.0,
+    # Configure a twin with explicit QoS thresholds
+    twin = InterpretationTwin(
+        name="CentralBankPresser",
+        thresholds=QoSThresholds(degraded_ms=150.0,
+                                 critical_ms=250.0,
+                                 failure_ms=500.0),
         min_confidence=0.6,
     )
 
-    # Create Interpretation Twin
-    itwin = InterpretationTwin(
-        source_lang=LanguageCode.JA,
-        target_lang=LanguageCode.KO,
-        qos=qos,
-    )
+    # Simulated latency trace over the session (milliseconds)
+    latency_trace = [48, 52, 61, 95, 140, 180, 240, 310, 270, 160, 70]
+    print("Latency trace (degradation level per sample):")
+    for i, lat in enumerate(latency_trace):
+        level = twin.record_latency(float(lat))
+        print(f"  t={i:2d}  {lat:4d} ms  ->  {level.value}")
 
-    # Start session
-    itwin.start_session("BOJ_Press_Conference_2025Q1")
+    # Typed hints generated during the session.
+    # Numerals get a short TTL: they must be delivered quickly because
+    # numbers are hard to retain in working memory.
+    twin.generate_hint("policy rate: 3.50%", PrimType.NUMERAL,
+                       confidence=0.95, ttl_seconds=4.0, now=0.0)
+    twin.generate_hint("year-on-year: 2.1 percent", PrimType.NUMERAL,
+                       confidence=0.88, ttl_seconds=4.0, now=1.0)
+    # A terminology hint tolerates a longer TTL.
+    twin.generate_hint("quantitative tightening", PrimType.TERM,
+                       confidence=0.91, ttl_seconds=10.0, now=1.0)
+    # A low-confidence hint is filtered out.
+    rejected = twin.generate_hint("uncertain phrase", PrimType.CONTEXT,
+                                  confidence=0.40, ttl_seconds=8.0,
+                                  now=1.0)
+    print(f"\nLow-confidence hint rejected: {rejected is None}")
+    print(f"Active hints at t=2 s : {len(twin.active_hints(now=2.0))}")
+    print(f"Active hints at t=6 s : {len(twin.active_hints(now=6.0))}")
 
-    # Simulate utterances with varying types, latencies, and confidence
-    utterances = [
-        ("金融政策の変更について", PrimType.T, 0.95, 300),
-        ("基準金利を0.25%に据え置き", PrimType.N, 0.92, 450),
-        ("総裁は慎重な姿勢を示し", PrimType.H, 0.88, 800),
-        ("次に物価見通しについて", PrimType.C, 0.90, 200),
-        ("コアCPIは前年比2.3%", PrimType.N, 0.95, 350),
-        ("ご質問をお受けいたします", PrimType.H, 0.85, 1200),
-        ("為替市場への影響は限定的", PrimType.T, 0.78, 2800),
-        ("以上で記者会見を終了", PrimType.C, 0.92, 150),
-        ("不確実性が高い状況", PrimType.V, 0.45, 400),  # low confidence → filtered
-        ("量的緩和の縮小ペース", PrimType.T, 0.91, 4500),  # high latency → failure
-    ]
+    print("\nSession analytics:")
+    for key, value in twin.session_analytics().items():
+        print(f"  {key}: {value}")
 
-    print("=== BOJ Press Conference RSI Session ===\n")
-    for content, ptype, conf, lat in utterances:
-        hint = itwin.add_hint(content, ptype,
-                              confidence=conf, latency_ms=lat)
-        if hint is None:
-            print(f"  FILTERED (conf={conf:.2f}): {content[:30]}")
-        elif not hint.delivered:
-            print(f"  FAILURE  (lat={lat}ms): {content[:30]}")
-        else:
-            print(f"  {hint.degradation.value:>8s} ({lat:>4d}ms) [{ptype.value[0].upper()}]: {content[:30]}")
+    print("\n[OK] RSI QoS session example completed.")
 
-    # Session analytics
-    analytics = itwin.end_session()
-    print(f"\n=== Session Analytics ===")
-    print(f"Total hints: {analytics['total_hints']}")
-    print(f"Delivered: {analytics['delivered']}")
-    print(f"Delivery rate: {analytics['delivery_rate']:.0%}")
-    print(f"Mean latency: {analytics['mean_latency_ms']:.0f}ms")
-    print(f"Degradation: {analytics['degradation_counts']}")
-    print(f"By type: {analytics['type_counts']}")
 
 if __name__ == "__main__":
     main()
