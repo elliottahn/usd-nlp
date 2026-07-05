@@ -139,12 +139,48 @@ interpreting because numbers are hard to retain in working memory,
 while terminology-type prims tolerate higher latency because semantic
 context aids recall.
 
+
+## Importing conventional NLP pipeline annotations
+
+USD-NLP does not replace automatic NLP annotation engines. Instead, it
+stores their outputs as composable, versioned layers. The repository
+includes a zero-dependency CoNLL-U importer and duck-typed helpers for
+objects already produced by Stanza or spaCy upstream.
+
+```python
+from usd_nlp.adapters import from_conllu, from_stanza_document, from_spacy_doc
+
+# Import standard CoNLL-U text.
+scene = from_conllu(conllu_text,
+                    scene_name="AnnotationDemo",
+                    stage_name="sentence_1",
+                    language="en")
+
+# Or convert objects already produced upstream by Stanza or spaCy.
+scene_from_stanza = from_stanza_document(stanza_doc, language="en")
+scene_from_spacy = from_spacy_doc(spacy_doc, language="en")
+```
+
+The importer maps CoNLL-U fields to USD-NLP as follows:
+
+| CoNLL-U field | USD-NLP representation |
+|---------------|------------------------|
+| `FORM`        | token Prim content |
+| `LEMMA`       | `Prim.metadata["lemma"]` |
+| `UPOS`, `XPOS`, `FEATS` | POS and morphology metadata |
+| `HEAD`        | reference to the head-token Prim |
+| `DEPREL`      | dependency relation metadata |
+| NER spans     | span-level Prims referencing covered token Prim IDs |
+
+This lets existing tools perform automatic linguistic analysis while
+USD-NLP manages the resulting token metadata, named-entity span annotations,
+and dependency links as auditable multilingual state.
+
 ## Twin Architectures
 
 - **LanguageTwin** — shared-state translation of multi-document
-  projects, with user-supplied segmentation, multilingual term-base
-  management with jurisdiction-specific variants, and update,
-  retrieval, and generation helper methods.
+  projects, with multilingual term base management and
+  jurisdiction-specific variants.
 - **InterpretationTwin** — real-time simultaneous interpreting
   assistance with configurable network quality-of-service thresholds,
   confidence-filtered hint delivery, TTL-based hint expiry, and
@@ -152,9 +188,6 @@ context aids recall.
   failure).
 
 ## Testing
-
-The toolkit ships with a unit test suite (39 tests) covering the
-core hierarchy, the seven-layer stack, and both twin architectures:
 
 ```bash
 python -m unittest discover tests/

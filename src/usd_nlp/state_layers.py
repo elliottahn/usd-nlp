@@ -1,152 +1,107 @@
-"""USD-NLP: Seven-layer processing stack (L0-L6).
-
-Implements the StateLayerStack described in the manuscript: a seven-layer
-processing model with non-destructive composition, inter-layer diffing,
-purpose-specific validation, and an append-only audit log.
-"""
+"""Seven-layer USD-NLP state stack."""
 from __future__ import annotations
+
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
-from .core import Layer, LayerPurpose, LanguageCode, Prim
-
-
-# Canonical L0-L6 purpose ordering
-LAYER_ORDER = [
-    LayerPurpose.RAW_SOURCE,          # L0
-    LayerPurpose.ENTITY_EXTRACTION,   # L1
-    LayerPurpose.TERM_BASE,           # L2
-    LayerPurpose.STRUCTURAL,          # L3
-    LayerPurpose.REGISTER,            # L4
-    LayerPurpose.TRANSLATION_STATE,   # L5
-    LayerPurpose.REVIEW_STATE,        # L6
-]
-
-LAYER_DESCRIPTIONS = {
-    LayerPurpose.RAW_SOURCE:        "Original documents as deposited",
-    LayerPurpose.ENTITY_EXTRACTION: "Company names, amounts, dates",
-    LayerPurpose.TERM_BASE:         "Multilingual term mappings + variants",
-    LayerPurpose.STRUCTURAL:        "Clause numbering, cross-reference graph",
-    LayerPurpose.REGISTER:          "Required register level per language",
-    LayerPurpose.TRANSLATION_STATE: "Which clauses translated, by whom",
-    LayerPurpose.REVIEW_STATE:      "Reviewed by counsel, board-approved",
-}
+from .core import Layer, LayerPurpose, Prim
 
 
 @dataclass
 class AuditEntry:
-    """A single append-only audit log record."""
-    action: str
-    layer: str
-    detail: str
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    action: str = ""
+    layer: str = ""
+    prim_id: str = ""
+    detail: str = ""
 
     def to_dict(self) -> Dict[str, str]:
-        return {"action": self.action, "layer": self.layer,
-                "detail": self.detail, "timestamp": self.timestamp}
+        return {
+            "timestamp": self.timestamp,
+            "action": self.action,
+            "layer": self.layer,
+            "prim_id": self.prim_id,
+            "detail": self.detail,
+        }
 
 
+@dataclass
 class StateLayerStack:
-    """A seven-layer (L0-L6) non-destructive processing stack.
+    """L0-L6 composition stack with an append-only audit log."""
+    layers: Dict[str, Layer] = field(default_factory=dict)
+    audit_log: List[AuditEntry] = field(default_factory=list)
 
-    Layers are composed with strongest-opinion-wins semantics: a higher
-    layer (closer to L6) overrides a lower layer for the same prim id.
-    All mutations are recorded in an append-only audit log.
-    """
-
-    def __init__(self, language: LanguageCode = LanguageCode.EN):
-        self.language = language
-        self._layers: Dict[LayerPurpose, Layer] = {}
-        self.audit_log: List[AuditEntry] = []
-
-    # -- layer management -------------------------------------------------
-    def set_layer(self, layer: Layer) -> None:
-        """Insert or replace a layer at its purpose slot."""
-        self._layers[layer.purpose] = layer
-        self.audit_log.append(AuditEntry(
-            action="set_layer", layer=layer.purpose.value,
-            detail=f"{len(layer.prims)} prims"))
+    def add_layer(self, layer: Layer) -> Layer:
+        self.layers[layer.purpose.value] = layer
+        self._log("add_layer", layer.purpose.value)
+        return layer
 
     def get_layer(self, purpose: LayerPurpose) -> Optional[Layer]:
-        return self._layers.get(purpose)
+        return self.layers.get(purpose.value)
 
-    def has_layer(self, purpose: LayerPurpose) -> bool:
-        return purpose in self._layers
+    def remove_layer(self, purpose: LayerPurpose) -> Optional[Layer]:
+        removed = self.layers.pop(purpose.value, None)
+        if removed is not None:
+            self._log("remove_layer", purpose.value)
+        return removed
 
-    # -- composition ------------------------------------------------------
-    def compose(self) -> Dict[str, str]:
-        """Resolve all layers L0->L6 with strongest-opinion-wins semantics.
+    @property
+    def layer_count(self) -> int:
+        return len(self.layers)
 
-        Returns a mapping of prim id to resolved content.
-        """
-        resolved: Dict[str, str] = {}
-        for purpose in LAYER_ORDER:
-            layer = self._layers.get(purpose)
+    def compose(self) -> Dict[str, Prim]:
+        resolved: Dict[str, Prim] = {}
+        for purpose in LayerPurpose:
+            layer = self.layers.get(purpose.value)
             if layer is None:
                 continue
             for prim in layer.prims:
-                content = layer.resolve_prim(prim.prim_id)
-                if content is not None:
-                    resolved[prim.prim_id] = content
+                resolved[prim.prim_id] = prim
         return resolved
 
-    def diff(self, lower: LayerPurpose,
-             upper: LayerPurpose) -> Dict[str, Dict[str, Any]]:
-        """Compute per-prim differences between two layers.
-
-        Returns a mapping of prim id to {"lower": ..., "upper": ...}
-        for prims whose resolved content differs between the layers.
-        """
-        low = self._layers.get(lower)
-        up = self._layers.get(upper)
-        if low is None or up is None:
+    def diff(self, purpose_a: LayerPurpose, purpose_b: LayerPurpose) -> Dict[str, Tuple[Optional[str], Optional[str]]]:
+        layer_a = self.layers.get(purpose_a.value)
+        layer_b = self.layers.get(purpose_b.value)
+        if layer_a is None or layer_b is None:
             return {}
-        diffs: Dict[str, Dict[str, Any]] = {}
-        low_ids = {p.prim_id for p in low.prims}
-        up_ids = {p.prim_id for p in up.prims}
-        for pid in low_ids | up_ids:
-            lc = low.resolve_prim(pid) if pid in low_ids else None
-            uc = up.resolve_prim(pid) if pid in up_ids else None
-            if lc != uc:
-                diffs[pid] = {"lower": lc, "upper": uc}
+        ids = {p.prim_id for p in layer_a.prims} | {p.prim_id for p in layer_b.prims}
+        diffs: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
+        for prim_id in ids:
+            pa = layer_a.get_prim(prim_id)
+            pb = layer_b.get_prim(prim_id)
+            ca = pa.resolved_content if pa else None
+            cb = pb.resolved_content if pb else None
+            if ca != cb:
+                diffs[prim_id] = (ca, cb)
         return diffs
 
-    # -- validation -------------------------------------------------------
+    def validate(self, purpose: LayerPurpose) -> List[str]:
+        layer = self.layers.get(purpose.value)
+        if layer is None:
+            return [f"Layer {purpose.value} not found"]
+        errors: List[str] = []
+        for prim in layer.prims:
+            if not prim.content:
+                errors.append(f"{purpose.value}/{prim.prim_id}: empty content")
+            if purpose == LayerPurpose.REVIEW_STATE and prim.confidence < 0.9:
+                errors.append(f"{purpose.value}/{prim.prim_id}: review confidence below 0.9")
+            if purpose == LayerPurpose.TRANSLATION_STATE and "translator" not in prim.metadata:
+                # Warning-level rule: recorded as validation message, not fatal.
+                errors.append(f"{purpose.value}/{prim.prim_id}: translator metadata missing")
+        return errors
+
     def validate_all(self) -> Dict[str, List[str]]:
-        """Run purpose-specific validation rules on every layer.
+        return {purpose.value: self.validate(purpose) for purpose in LayerPurpose if purpose.value in self.layers}
 
-        Returns a mapping of layer purpose value to a list of issues.
-        An empty list means the layer passed validation.
-        """
-        issues: Dict[str, List[str]] = {}
-        for purpose, layer in self._layers.items():
-            layer_issues: List[str] = []
-            # Every prim must carry a non-empty id and content.
-            for prim in layer.prims:
-                if not prim.prim_id:
-                    layer_issues.append("prim with empty id")
-                if not prim.content:
-                    layer_issues.append(f"prim {prim.prim_id} has empty content")
-            # L2 (term base) prims should declare at least one variant
-            # or be explicitly marked monolingual.
-            if purpose == LayerPurpose.TERM_BASE:
-                for prim in layer.prims:
-                    if not prim.variants and not prim.metadata.get("monolingual"):
-                        layer_issues.append(
-                            f"term {prim.prim_id} has no variant")
-            issues[purpose.value] = layer_issues
-        self.audit_log.append(AuditEntry(
-            action="validate_all", layer="*",
-            detail=f"{sum(len(v) for v in issues.values())} issues"))
-        return issues
+    def get_processing_status(self) -> Dict[str, int]:
+        return {key: layer.prim_count for key, layer in self.layers.items()}
 
-    # -- serialisation ----------------------------------------------------
-    def summary(self) -> Dict[str, Any]:
+    def _log(self, action: str, layer: str, prim_id: str = "", detail: str = "") -> None:
+        self.audit_log.append(AuditEntry(action=action, layer=layer, prim_id=prim_id, detail=detail))
+
+    def to_dict(self) -> Dict[str, object]:
         return {
-            "language": self.language.value,
-            "layers_present": sorted(p.value for p in self._layers),
-            "total_prims": sum(len(l.prims) for l in self._layers.values()),
-            "audit_entries": len(self.audit_log),
+            "layers": {k: v.to_dict() for k, v in self.layers.items()},
+            "audit_log": [entry.to_dict() for entry in self.audit_log],
         }

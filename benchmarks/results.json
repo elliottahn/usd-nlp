@@ -1,0 +1,13 @@
+{
+  "n_runs": 5,
+  "construction_prims_per_sec": 421770,
+  "construction_total_prims": 30000,
+  "composition_ms_per_stage": 0.04,
+  "serialization_ms": 80,
+  "deserialization_ms": 169,
+  "serialized_size_kb": 10637,
+  "override_ops_per_sec": 355039,
+  "search_prims_found": 6000,
+  "search_ms": 0.8,
+  "memory_overhead_ratio": 1.0
+}
