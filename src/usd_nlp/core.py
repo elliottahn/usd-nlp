@@ -324,10 +324,22 @@ class Stage:
         self.layers.append(layer)
         return layer
 
-    def get_layer(self, purpose: LayerPurpose) -> Optional[Layer]:
+def get_layer(
+        self,
+        purpose: LayerPurpose,
+        language: Optional[LanguageCode] = None,
+    ) -> Optional[Layer]:
+        """Return the most recently added layer matching ``purpose``.
+
+        When ``language`` is given, only layers of that language are
+        considered, allowing parallel language layers of the same purpose
+        (e.g. JA/KO/EN raw-source layers) to be retrieved individually.
+        When ``language`` is omitted the previous behaviour is preserved.
+        """
         for layer in reversed(self.layers):
             if layer.purpose == purpose:
-                return layer
+                if language is None or layer.language == language:
+                    return layer
         return None
 
     def remove_layer(self, purpose: LayerPurpose) -> Optional[Layer]:
