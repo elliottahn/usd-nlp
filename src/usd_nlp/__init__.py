@@ -1,5 +1,5 @@
 """USD-NLP: Universal Scene Description for Multilingual NLP Pipelines."""
-__version__ = "0.1.2"
+__"0.1.3"
 
 from .core import (
     LanguageCode,
