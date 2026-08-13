@@ -28,7 +28,14 @@ class AuditEntry:
 
 @dataclass
 class StateLayerStack:
-    """L0-L6 composition stack with an append-only audit log."""
+    """L0-L6 composition stack with an append-only audit log.
+
+    A stack models the processing states of one document in one language
+    version; layers are keyed by purpose, so adding a second layer with
+    the same purpose replaces the first. Parallel language states should
+    be held as separate ``Layer`` objects in a ``Stage`` (see
+    ``Stage.get_layer(purpose, language)``) or as one stack per language.
+    """
     layers: Dict[str, Layer] = field(default_factory=dict)
     audit_log: List[AuditEntry] = field(default_factory=list)
 
