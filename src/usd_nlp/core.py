@@ -324,7 +324,7 @@ class Stage:
         self.layers.append(layer)
         return layer
 
-def get_layer(
+    def get_layer(
         self,
         purpose: LayerPurpose,
         language: Optional[LanguageCode] = None,
